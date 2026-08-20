@@ -23,10 +23,12 @@ they now also live), this repo collects them side by side with the story of how 
 | [`games/lights_out.crush`](games/lights_out.crush) | qwen38-base (base Qwen3.8-27B) | Board as a 25-bit bitfield integer | Clean on first try; extended tictactoe's integer-encoding trick to a bitfield; the only one of the three dispatched models that proactively ran the full project conformance suite (874 tests) before declaring done |
 | [`games/game_of_life.crush`](games/game_of_life.crush) | Claude (hand-written, not dispatched) | Board as a 25-bit bitfield integer | Conway's Game of Life — a different category entirely (cellular automaton, not a 2-player game or a scramble-and-solve puzzle); genuinely used the manifest-level AI-native annotations (`@module`/`@decision`/`@invariant`) and found a real compiler bug doing so — see below |
 | [`games/blackjack.crush`](games/blackjack.crush) | OpenCode | Scalar hand totals and deck position | A pure-Crush card game: deterministic 52-card permutation, soft-ace scoring, recursive hit/stand play, dealer resolution, and bankroll across six rounds |
+| [`games/pong-deepseek.crush`](games/pong-deepseek.crush) | cece / bro (DeepSeek-v4) | Many scalar args threaded through recursion | A second, independent take on Pong (distinct from Ornith's) — two self-playing paddles with an LCG-driven hesitation model; also merged into `crush-ast`'s own `examples/crush/` |
+| [`games/fifteen_puzzle.crush`](games/fifteen_puzzle.crush) | bro (DeepSeek-v4) | 15 tiles packed as base-16 nibbles in one i64, blank as a separate scalar | From the captain's own separate bro session (not one of this repo's dispatches) — that session finished the code but hung before it could commit; recovered and verified here. The most algorithmically sophisticated entry: real IDA* (iterative-deepening A*) with a Manhattan-distance heuristic, seeded-LCG scramble, packed move-path replay. Verified solving a 30-move scramble optimally in 6 moves — matching the initial heuristic estimate exactly |
 
-All five are self-playing (no interactive input — Crush currently has no keyboard/stdin), all
-five thread their entire game state through recursion-as-arguments rather than mutable arrays
-(a real language constraint, not a stylistic choice — see below), and all five run to a
+All seven are self-playing (no interactive input — Crush currently has no keyboard/stdin), all
+seven thread their entire game state through recursion-as-arguments rather than mutable arrays
+(a real language constraint, not a stylistic choice — see below), and all seven run to a
 deterministic, verifiable conclusion.
 
 ## Real language constraints every model had to work around
