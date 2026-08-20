@@ -22,10 +22,11 @@ they now also live), this repo collects them side by side with the story of how 
 | [`games/tictactoe.crush`](games/tictactoe.crush) | foreman-v2 (Qwen3.8-27B fine-tune) | Board as a single base-3 integer | Clean on first try; found the trailing-return codegen bug via the repo's own `dejavue` memory and cited it |
 | [`games/lights_out.crush`](games/lights_out.crush) | qwen38-base (base Qwen3.8-27B) | Board as a 25-bit bitfield integer | Clean on first try; extended tictactoe's integer-encoding trick to a bitfield; the only one of the three dispatched models that proactively ran the full project conformance suite (874 tests) before declaring done |
 | [`games/game_of_life.crush`](games/game_of_life.crush) | Claude (hand-written, not dispatched) | Board as a 25-bit bitfield integer | Conway's Game of Life — a different category entirely (cellular automaton, not a 2-player game or a scramble-and-solve puzzle); genuinely used the manifest-level AI-native annotations (`@module`/`@decision`/`@invariant`) and found a real compiler bug doing so — see below |
+| [`games/blackjack.crush`](games/blackjack.crush) | OpenCode | Scalar hand totals and deck position | A pure-Crush card game: deterministic 52-card permutation, soft-ace scoring, recursive hit/stand play, dealer resolution, and bankroll across six rounds |
 
-All three are self-playing (no interactive input — Crush currently has no keyboard/stdin), all
-three thread their entire game state through recursion-as-arguments rather than mutable arrays
-(a real language constraint, not a stylistic choice — see below), and all three run to a
+All five are self-playing (no interactive input — Crush currently has no keyboard/stdin), all
+five thread their entire game state through recursion-as-arguments rather than mutable arrays
+(a real language constraint, not a stylistic choice — see below), and all five run to a
 deterministic, verifiable conclusion.
 
 ## Real language constraints every model had to work around
