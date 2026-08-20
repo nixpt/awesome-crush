@@ -3,7 +3,8 @@
 A collection of self-playing ASCII games written in [Crush](https://github.com/nixpt/crush-ast),
 each authored by a different LLM given the same minimal prompt — **"can you learn crush?"**,
 pointed at `crush-ast`, nothing else — with the freedom to explore, propose what to build, and
-build it.
+build it. One entry (`game_of_life.crush`) is hand-written by Claude directly rather than
+dispatched, as a fourth point of comparison.
 
 ## Why this exists
 
@@ -15,11 +16,12 @@ they now also live), this repo collects them side by side with the story of how 
 
 ## The games
 
-| Game | Model | State encoding | Notes |
+| Game | Author | State encoding | Notes |
 |---|---|---|---|
 | [`games/pong.crush`](games/pong.crush) | Ornith-1.5-35B-A3B (MoE) | Many scalar args threaded through recursion | v1→v2 iteration: found and self-fixed two real rendering bugs (a ball-on-column-priority bug that hid whatever wall/paddle/center-line shared its column) |
 | [`games/tictactoe.crush`](games/tictactoe.crush) | foreman-v2 (Qwen3.8-27B fine-tune) | Board as a single base-3 integer | Clean on first try; found the trailing-return codegen bug via the repo's own `dejavue` memory and cited it |
-| [`games/lights_out.crush`](games/lights_out.crush) | qwen38-base (base Qwen3.8-27B) | Board as a 25-bit bitfield integer | Clean on first try; extended tictactoe's integer-encoding trick to a bitfield; the only one of the three that proactively ran the full project conformance suite (874 tests) before declaring done |
+| [`games/lights_out.crush`](games/lights_out.crush) | qwen38-base (base Qwen3.8-27B) | Board as a 25-bit bitfield integer | Clean on first try; extended tictactoe's integer-encoding trick to a bitfield; the only one of the three dispatched models that proactively ran the full project conformance suite (874 tests) before declaring done |
+| [`games/game_of_life.crush`](games/game_of_life.crush) | Claude (hand-written, not dispatched) | Board as a 25-bit bitfield integer | Conway's Game of Life — a different category entirely (cellular automaton, not a 2-player game or a scramble-and-solve puzzle); genuinely used the manifest-level AI-native annotations (`@module`/`@decision`/`@invariant`) and found a real compiler bug doing so — see below |
 
 All three are self-playing (no interactive input — Crush currently has no keyboard/stdin), all
 three thread their entire game state through recursion-as-arguments rather than mutable arrays
@@ -45,6 +47,31 @@ Discovered independently, converged on the same answers:
   one-line fix is a trailing `return;` after the if/else. Filed in `crush-ast`'s own project memory
   (`dejavue`); tictactoe.crush and lights_out.crush both found it there and worked with it instead
   of hitting it blind.
+
+## Crush's AI-native annotations — genuinely used, and one real bug found
+
+Crush ships a manifest-level annotation system aimed specifically at making code
+agent-legible — `@module { purpose, exports, invariants, related }`, `@decision { chose, over,
+because, revisit-if }`, `@invariant { description, applies_to, check }`, plus a few others
+(`@wip`, `@temporary`, `@errors`). `game_of_life.crush` uses three of them for real (documenting
+why the board is packed into an integer instead of an array, and the invariant that keeps it in
+bounds) rather than as decoration.
+
+Verifying that surfaced a real compiler bug: **`crushc` hangs indefinitely — not an error, an
+infinite loop — parsing `@decision`'s `revisit-if` field.** Isolated by bisection: `@module` alone
+compiles fine, `@invariant` alone compiles fine, `@decision` with `chose`/`because`/`over[]` all
+compile fine, but `@decision { revisit-if: [...] }` alone hangs with zero output. Almost certainly
+the field name itself — `revisit-if` — confuses the parser, since `if` is a reserved keyword
+immediately after the hyphen. This is very likely the actual root cause of `crush-ast`'s own
+`examples/crush/ai_agent_ops.crush`, which is marked `// expect-error: TIMEOUT` and does use
+`revisit-if` — previously explainable by that file's unimplemented `semantic_switch`/`ai_synthesize`
+runtime calls, but the hang happens at parse time, before either of those would ever run.
+`game_of_life.crush`'s own `@decision` block deliberately omits `revisit-if`, with a comment
+explaining why.
+
+The runtime AI-expression layer (`semantic_switch`, `ai_synthesize`, `ai_semantic_match`) is a
+separate, further-out concept — not attempted here, and `ai_agent_ops.crush`'s own `expect-error`
+marker already signals it isn't working code yet.
 
 ## Running a game
 
