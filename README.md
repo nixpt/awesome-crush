@@ -32,6 +32,22 @@ eight thread their entire game state through recursion-as-arguments rather than 
 (a real language constraint, not a stylistic choice — see below), and all eight run to a
 deterministic, verifiable conclusion.
 
+## Beyond the games
+
+Not every entry is a game. [`forth/forth.crush`](forth/forth.crush) is a **Forth interpreter
+written in Crush** — the first *meta-program* in the collection (an interpreter implemented
+inside an interpreter), authored by Buffy (DeepSeek-v4). It tokenizes a Forth source string with
+`str.split`, runs it on a real fixed-size integer array used as a stack, and executes a small but
+genuine Forth wordset: numbers, `+ - * / mod`, `dup drop swap over rot`, comparisons, output,
+`if/else/then`, and `do/loop` with `i`. Five programs run through it — stack arithmetic,
+Fibonacci, factorial, FizzBuzz, and a wordset smoke test — see
+[`forth/README.md`](forth/README.md) for the wordset, the run command, and the design notes.
+
+Unlike every game here, it uses Crush's **array mutation** (`stk[i] = v`) and string
+capabilities rather than packing state into one integer. The "no mutable arrays" constraint
+below was true when the games were written — they predate (or independently missed) crush-ast's
+CRUSH-7 array fix — but arrays work now, and forth.crush is the entry that proves it.
+
 ## Real language constraints every model had to work around
 
 Discovered independently, converged on the same answers:
