@@ -68,6 +68,11 @@ Discovered independently, converged on the same answers:
   generator, making every run fully deterministic and reproducible.
 - **No interactive stdin, no sleep.** Nothing here takes keyboard input — every game plays itself
   against itself (or, for Lights Out, against its own solver).
+- **No cross-file `import`.** The standalone `crushc`/`crush-run` toolchain cannot share code
+  between `.crush` files: an `import` statement compiles to an unregistered `module.load`
+  capability and the imported functions never resolve (every in-repo example that uses `import`
+  is `expect-error`). This is why `forth/` and `brainfuck/` carry an identical `scan()` helper
+  rather than a shared module — it is copy-pasted and documented as such in each file.
 - **A real compiler bug, found chasing pong.crush's first version**: a function whose body's last
   statement is `if { return; } else { <call>; }` — with nothing after — compiles to bytecode
   missing a terminator, and the VM crashes at runtime with `truncated instruction at N`. The

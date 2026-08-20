@@ -62,8 +62,11 @@ them.
   be mutated in place (`stk[i] = v`) but not grown from source, so a fixed
   buffer + depth pointer is the natural stack.
 - **Control flow by scanning, not compiling.** `if`/`else`/`then` and
-  `do`/`loop` resolve their jumps by scanning the token array for the matching
-  token (with a nesting depth counter), so no growable jump table is needed.
+  `do`/`loop` resolve their jumps through one generalized `scan()` helper (a
+  nesting-depth counter), so no growable jump table is needed. That helper is
+  byte-for-byte the same function `brainfuck.crush` uses for `[`/`]`; it is
+  copy-pasted rather than `import`ed because the standalone `crushc`/`crush-run`
+  toolchain has no working cross-file import.
 - **Manual integer parsing.** There is no `to_int` in the standalone binary
   (`conv.*` lives behind the unbuilt `stdlib` feature), so `parse_int` walks
   the token's characters and accumulates `n * 10 + digit`.

@@ -13,9 +13,11 @@ byte tape, a pointer, and bracket-matched loops.
 - The tape is a fixed 32-cell integer array mutated with indexed assignment
   (`tape[ptr] = v`) — the same real-array machinery `forth.crush` uses, and
   what every game in this repo predates or missed.
-- `[` and `]` are matched by forward/backward scans with a nesting counter,
-  exactly like `forth.crush`'s `if/else/then` scanning — no precompiled jump
-  table.
+- `[` and `]` are matched by one generalized `scan()` helper (a
+  nesting-depth counter) — no precompiled jump table. It is byte-for-byte the
+  same function `forth.crush` uses for `if/else/then`; it is copy-pasted rather
+  than `import`ed because the standalone `crushc`/`crush-run` toolchain has no
+  working cross-file import.
 - **Output is the hard part.** Crush has no `chr()`/`ord()`, and the standalone
   `crush-run` binary has no `conv.*` (that lives behind the unbuilt `stdlib`
   feature). A byte is turned into a character by indexing a 95-character string
