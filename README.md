@@ -25,10 +25,11 @@ they now also live), this repo collects them side by side with the story of how 
 | [`games/blackjack.crush`](games/blackjack.crush) | OpenCode | Scalar hand totals and deck position | A pure-Crush card game: deterministic 52-card permutation, soft-ace scoring, recursive hit/stand play, dealer resolution, and bankroll across six rounds |
 | [`games/pong-deepseek.crush`](games/pong-deepseek.crush) | cece / bro (DeepSeek-v4) | Many scalar args threaded through recursion | A second, independent take on Pong (distinct from Ornith's) — two self-playing paddles with an LCG-driven hesitation model; also merged into `crush-ast`'s own `examples/crush/` |
 | [`games/fifteen_puzzle.crush`](games/fifteen_puzzle.crush) | bro (DeepSeek-v4) | 15 tiles packed as base-16 nibbles in one i64, blank as a separate scalar | From the captain's own separate bro session (not one of this repo's dispatches) — that session finished the code but hung before it could commit; recovered and verified here. The most algorithmically sophisticated entry: real IDA* (iterative-deepening A*) with a Manhattan-distance heuristic, seeded-LCG scramble, packed move-path replay. Verified solving a 30-move scramble optimally in 6 moves — matching the initial heuristic estimate exactly |
+| [`games/breakout.crush`](games/breakout.crush) | cece (DeepSeek-v4) | 30 bricks as one bit each in a single integer | Classic brick-breaker — AI paddle tracks the ball's x-position, angle changes based on paddle-hit offset. Same bitfield-in-an-integer trick as `lights_out`/`game_of_life`. Verified: runs to completion, score tracks the brick count exactly (140 = 14 bricks × 10) |
 
-All seven are self-playing (no interactive input — Crush currently has no keyboard/stdin), all
-seven thread their entire game state through recursion-as-arguments rather than mutable arrays
-(a real language constraint, not a stylistic choice — see below), and all seven run to a
+All eight are self-playing (no interactive input — Crush currently has no keyboard/stdin), all
+eight thread their entire game state through recursion-as-arguments rather than mutable arrays
+(a real language constraint, not a stylistic choice — see below), and all eight run to a
 deterministic, verifiable conclusion.
 
 ## Real language constraints every model had to work around
