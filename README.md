@@ -34,19 +34,26 @@ deterministic, verifiable conclusion.
 
 ## Beyond the games
 
-Not every entry is a game. [`forth/forth.crush`](forth/forth.crush) is a **Forth interpreter
-written in Crush** — the first *meta-program* in the collection (an interpreter implemented
-inside an interpreter), authored by Buffy (DeepSeek-v4). It tokenizes a Forth source string with
-`str.split`, runs it on a real fixed-size integer array used as a stack, and executes a small but
-genuine Forth wordset: numbers, `+ - * / mod`, `dup drop swap over rot`, comparisons, output,
-`if/else/then`, and `do/loop` with `i`. Five programs run through it — stack arithmetic,
-Fibonacci, factorial, FizzBuzz, and a wordset smoke test — see
-[`forth/README.md`](forth/README.md) for the wordset, the run command, and the design notes.
+Not every entry is a game. Two entries host *other languages* on top of Crush — the first
+meta-programs in the collection (interpreters implemented inside an interpreter), both authored
+by Buffy (DeepSeek-v4):
 
-Unlike every game here, it uses Crush's **array mutation** (`stk[i] = v`) and string
-capabilities rather than packing state into one integer. The "no mutable arrays" constraint
+- [`forth/forth.crush`](forth/forth.crush) — a **Forth interpreter**. Tokenizes a Forth source
+  string with `str.split`, runs it on a fixed-size integer array used as a stack (plus a return
+  stack for `do`/`loop` frames), and executes a genuine Forth wordset: numbers, `+ - * / mod`,
+  `dup drop swap over rot`, comparisons, output, `if/else/then`, and `do/loop` with `i`. Five
+  programs run through it — stack arithmetic, Fibonacci, factorial, FizzBuzz, and a wordset smoke
+  test — see [`forth/README.md`](forth/README.md).
+- [`brainfuck/brainfuck.crush`](brainfuck/brainfuck.crush) — a **Brainfuck interpreter**. Walks a
+  program one character at a time on a fixed-size byte tape, with bracket-matched loops. Its hard
+  part is output: with no `chr()` and no `conv.*` in the standalone binary, a byte becomes a
+  character by indexing a 95-character string of printable ASCII. Runs the classic Hello World, an
+  A–Z loop, and a 0–9 loop — see [`brainfuck/README.md`](brainfuck/README.md).
+
+Unlike every game here, they use Crush's **array mutation** (`stk[i] = v`, `tape[ptr] = v`) and
+string capabilities rather than packing state into one integer. The "no mutable arrays" constraint
 below was true when the games were written — they predate (or independently missed) crush-ast's
-CRUSH-7 array fix — but arrays work now, and forth.crush is the entry that proves it.
+CRUSH-7 array fix — but arrays work now, and these are the entries that prove it.
 
 ## Real language constraints every model had to work around
 
