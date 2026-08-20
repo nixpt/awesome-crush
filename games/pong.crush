@@ -1,0 +1,196 @@
+# Crush Pong — self-playing ASCII simulation.
+#
+# A tiny two-paddle pong rendered one frame per tick to stdout. There is no
+# keyboard input, no sleep, and no numeric RNG in current crush-ast, so the
+# game plays itself: each paddle runs a greedy tracker that steps one cell
+# toward the ball per tick. All state (ball position/velocity, paddle
+# centers, scores, and a deterministic LCG) is threaded through fixed-arity
+# recursion as function arguments — arrays can't hold mutable per-tick state
+# here, so we lean on the VM's argument-passing through recursion.
+#
+# A linear congruential generator seeded with a constant drives "random"
+# serve direction and respawn height, so every run is reproducible.
+#
+# Run:  ./run.sh   (compiles pong.crush to .cvm1 and executes it)
+
+
+fn lcg_next(state) {
+    return (state * 1103515245 + 12345) % 2147483648;
+}
+
+
+fn ai_move(pos, target) {
+    if target > pos {
+        return pos + 1;
+    }
+    if target < pos {
+        return pos - 1;
+    }
+    return pos;
+}
+
+
+fn clamp_ny(ny, H) {
+    if ny < 0 {
+        return 0;
+    }
+    if ny >= H {
+        return H - 1;
+    }
+    return ny;
+}
+
+
+fn respawn_y(rng, H) {
+    let r = lcg_next(rng);
+    let off = (r % 3) - 1;
+    let y = H / 2 + off;
+    if y < 0 {
+        return 0;
+    }
+    if y >= H {
+        return H - 1;
+    }
+    return y;
+}
+
+
+fn respawn_dx(frame) {
+    if frame % 2 == 0 {
+        return 1;
+    }
+    return -1;
+}
+
+
+fn bounce_dy(spin) {
+    let dy = 0 - spin;
+    if dy > 1 {
+        return 1;
+    }
+    if dy < -1 {
+        return -1;
+    }
+    return dy;
+}
+
+
+# Render the whole board as one big string using a compact per-cell loop.
+# Each cell is 3 chars wide so the grid stays legible. Output is a single
+# io.print of the full board (no per-row calls, which keeps call-depth and
+# instruction count low enough to survive the VM's 1,000,000-instruction
+# and 256-call-depth quotas).
+fn render(W, H, bx, by, pL, pR) {
+    let board = "";
+    let y = 0;
+    while y < H {
+        let line = "|";
+        let x = 0;
+        while x < W {
+            let c = ".";
+
+            if y % 2 == 1 {
+                if x == W / 2 {
+                    c = "#";
+                }
+            }
+
+            if x == bx {
+                if y == by {
+                    c = "o";
+                }
+            }
+
+            if x == 0 {
+                if y == pL {
+                    c = "=";
+                }
+            }
+
+            if x == W - 1 {
+                if y == pR {
+                    c = "=";
+                }
+            }
+
+            line = line + c;
+            x = x + 1;
+        }
+        let board = board + line + "\n";
+        y = y + 1;
+    }
+    io.print(board);
+}
+
+
+# Paddle save? Left wall hit while moving left, ball within the paddle band.
+fn left_save(W, H, nx, nby, pL) {
+    return (nx <= 0) && (nby > pL - 2) && (nby < pL + 2);
+}
+
+
+# Paddle save? Right wall hit while moving right, ball within the paddle band.
+fn right_save(W, H, nx, nby, pR) {
+    return (nx >= W - 1) && (nby > pR - 2) && (nby < pR + 2);
+}
+
+
+fn pong_tick(W, H, bx, by, bdx, bdy, pL, pR, sL, sR, rng, frame, max_frames) {
+    io.print("===================================================");
+    render(W, H, bx, by, pL, pR);
+    io.print("left: " + sL + "    right: " + sR + "    frame: " + frame);
+
+    if frame >= max_frames {
+        io.print("===================================================");
+        if sL > sR {
+            io.print("left wins " + sL + "-" + sR);
+        } else if sR > sL {
+            io.print("right wins " + sR + "-" + sL);
+        } else {
+            io.print("draw " + sL + "-" + sR);
+        }
+        return;
+    }
+
+    let nl = ai_move(pL, by);
+    let nr = ai_move(pR, by);
+
+    # vertical bounce off top/bottom walls
+    let ny = by + bdy;
+    let nby = clamp_ny(ny, H);
+
+    # horizontal advance
+    let nx = bx + bdx;
+
+    if nx <= 0 {
+        if left_save(W, H, nx, nby, nl) {
+            # save: flip horizontal, impart spin from where the paddle was hit
+            pong_tick(W, H, 1, nby, 1, bounce_dy(nby - nl), nl, nr, sL, sR, rng, frame + 1, max_frames);
+        } else {
+            # miss: right scores, ball respawns from the new centre
+            let rr = lcg_next(rng);
+            pong_tick(W, H, W / 2, respawn_y(rr, H), respawn_dx(frame + 1), 1, nl, nr, sL, sR + 1, rr, frame + 1, max_frames);
+        }
+    } else if nx >= W - 1 {
+        if right_save(W, H, nx, nby, nr) {
+            pong_tick(W, H, W - 2, nby, -1, bounce_dy(nby - nr), nl, nr, sL, sR, rng, frame + 1, max_frames);
+        } else {
+            let rr = lcg_next(rng);
+            pong_tick(W, H, W / 2, respawn_y(rr, H), respawn_dx(frame + 1), -1, nl, nr, sL + 1, sR, rr, frame + 1, max_frames);
+        }
+    } else {
+        pong_tick(W, H, nx, nby, bdx, bdy, nl, nr, sL, sR, rng, frame + 1, max_frames);
+    }
+}
+
+
+fn main() {
+    let W = 30;
+    let H = 8;
+    let bx = W / 2;
+    let by = H / 2;
+    let rng = 42;
+
+    io.print("Crush Pong  (  o ball   = paddle   | wall   # centre   )");
+    return pong_tick(W, H, bx, by, 1, 1, H / 2, H / 2, 0, 0, rng, 0, 240);
+}
