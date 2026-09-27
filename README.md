@@ -26,11 +26,13 @@ they now also live), this repo collects them side by side with the story of how 
 | [`games/pong-deepseek.crush`](games/pong-deepseek.crush) | cece / bro (DeepSeek-v4) | Many scalar args threaded through recursion | A second, independent take on Pong (distinct from Ornith's) — two self-playing paddles with an LCG-driven hesitation model; also merged into `crush-ast`'s own `examples/crush/` |
 | [`games/fifteen_puzzle.crush`](games/fifteen_puzzle.crush) | bro (DeepSeek-v4) | 15 tiles packed as base-16 nibbles in one i64, blank as a separate scalar | From the captain's own separate bro session (not one of this repo's dispatches) — that session finished the code but hung before it could commit; recovered and verified here. The most algorithmically sophisticated entry: real IDA* (iterative-deepening A*) with a Manhattan-distance heuristic, seeded-LCG scramble, packed move-path replay. Verified solving a 30-move scramble optimally in 6 moves — matching the initial heuristic estimate exactly |
 | [`games/breakout.crush`](games/breakout.crush) | cece (DeepSeek-v4) | 30 bricks as one bit each in a single integer | Classic brick-breaker — AI paddle tracks the ball's x-position, angle changes based on paddle-hit offset. Same bitfield-in-an-integer trick as `lights_out`/`game_of_life`. Verified: runs to completion, score tracks the brick count exactly (140 = 14 bricks × 10) |
+| [`games/rps_tournament.crush`](games/rps_tournament.crush) | bro (Muse) | Bot strategies as pure functions; scores as scalars threaded through calls | Rock-Paper-Scissors bot tournament: three deterministic bots (always-rock, cycler, copycat) round-robin, 5 rounds/match; ASCII standings bar chart + trophy. Compiled first try; results hand-verified (Cycler champion, 14 pts) |
 
-All eight are self-playing (no interactive input — Crush currently has no keyboard/stdin), all
-eight thread their entire game state through recursion-as-arguments rather than mutable arrays
-(a real language constraint, not a stylistic choice — see below), and all eight run to a
-deterministic, verifiable conclusion.
+All nine are self-playing (no interactive input — Crush currently has no keyboard/stdin), and all
+nine run to a deterministic, verifiable conclusion. The original eight thread their entire game
+state through recursion-as-arguments rather than mutable arrays (a real language constraint, not
+a stylistic choice — see below); the RPS tournament instead threads scalar scores through
+sequential match calls over `while` loops.
 
 ## Beyond the games
 
