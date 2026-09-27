@@ -1,0 +1,145 @@
+# Rock-Paper-Scissors Bot Tournament — self-playing.
+#
+# Three bots with fixed strategies play a round-robin; no RNG, no input,
+# the whole tournament is deterministic and plays itself to completion.
+# Each match prints every round, the match score, then an ASCII bar-chart
+# standings table and a trophy for the champion.
+#
+#   Rocky   (0) — always throws rock. Stubborn.
+#   Cycler  (1) — cycles rock -> paper -> scissors -> rock ...
+#   Copycat (2) — throws whatever the opponent threw last round (opens paper).
+#
+# Scoring: win = 2 pts, draw = 1 pt each, loss = 0.
+#
+# Author: bro (Muse). Written for nixpt/awesome-crush, compiled and run
+# against crush-ast with zero changes — compiled on the first try.
+#
+# Run: crushc games/rps_tournament.crush -o rps_tournament.cvm1 \
+#      && crush-run run rps_tournament.cvm1
+
+# --- moves & bots ---------------------------------------------------------
+# moves: 0 = rock, 1 = paper, 2 = scissors
+
+fn move_glyph(m) {
+    if m == 0 { return "R"; }
+    if m == 1 { return "P"; }
+    return "S";
+}
+
+fn bot_name(b) {
+    if b == 0 { return "Rocky"; }
+    if b == 1 { return "Cycler"; }
+    return "Copycat";
+}
+
+# bot_move(b, round, opp_last): bot b's throw on this round.
+fn bot_move(b, round, opp_last) {
+    if b == 0 { return 0; }
+    if b == 1 { return round % 3; }
+    return opp_last;
+}
+
+# outcome: 0 = draw, 1 = a wins, 2 = b wins
+fn outcome(a, b) {
+    let d = (a - b + 3) % 3;
+    if d == 0 { return 0; }
+    if d == 1 { return 1; }
+    return 2;
+}
+
+# --- one match ------------------------------------------------------------
+# Plays `rounds` rounds of a vs b. Returns a's match points
+# (2 per win, 1 per draw); b's points are 2*rounds - a_points.
+
+fn play_match(a, b, rounds) {
+    print("== " + bot_name(a) + " vs " + bot_name(b) + " ==");
+    let a_pts = 0;
+    let last_a = 1;
+    let last_b = 1;
+    let r = 0;
+    while r < rounds {
+        let ma = bot_move(a, r, last_b);
+        let mb = bot_move(b, r, last_a);
+        let w = outcome(ma, mb);
+        let line = "  round " + (r + 1) + ": " + bot_name(a) + " [" + move_glyph(ma) + "] vs " + bot_name(b) + " [" + move_glyph(mb) + "] -> ";
+        if w == 0 {
+            line = line + "draw";
+            a_pts = a_pts + 1;
+        }
+        if w == 1 {
+            line = line + bot_name(a) + " wins";
+            a_pts = a_pts + 2;
+        }
+        if w == 2 {
+            line = line + bot_name(b) + " wins";
+        }
+        print(line );
+        last_a = ma;
+        last_b = mb;
+        r = r + 1;
+    }
+    let b_pts = 2 * rounds - a_pts;
+    print("  match score: " + bot_name(a) + " " + a_pts + " - " + b_pts + " " + bot_name(b) );
+    return a_pts;
+}
+
+# --- standings ------------------------------------------------------------
+
+fn bar(n) {
+    let s = "";
+    let i = 0;
+    while i < n {
+        s = s + "#";
+        i = i + 1;
+    }
+    return s;
+}
+
+fn champion(p0, p1, p2) {
+    if p0 >= p1 {
+        if p0 >= p2 { return 0; }
+        return 2;
+    }
+    if p1 >= p2 { return 1; }
+    return 2;
+}
+
+fn main() {
+    print("Rock-Paper-Scissors Bot Tournament\n");
+    print("win = 2 pts, draw = 1 pt -- 5 rounds per match\n");
+
+    let rounds = 5;
+    let p_rocky = 0;
+    let p_cycler = 0;
+    let p_copy = 0;
+
+    let s = play_match(0, 1, rounds);
+    p_rocky = p_rocky + s;
+    p_cycler = p_cycler + (2 * rounds - s);
+
+    s = play_match(0, 2, rounds);
+    p_rocky = p_rocky + s;
+    p_copy = p_copy + (2 * rounds - s);
+
+    s = play_match(1, 2, rounds);
+    p_cycler = p_cycler + s;
+    p_copy = p_copy + (2 * rounds - s);
+
+    print("== final standings ==\n");
+    print("  Rocky   " + p_rocky + " pts " + bar(p_rocky) );
+    print("  Cycler  " + p_cycler + " pts " + bar(p_cycler) );
+    print("  Copycat " + p_copy + " pts " + bar(p_copy) );
+
+    let c = champion(p_rocky, p_cycler, p_copy);
+    print("champion: " + bot_name(c) + "!\n");
+    print("    ___________\n");
+    print("   '._==_==_=_.'\n");
+    print("   .-\\:      /-.\n");
+    print("  | (|:.     |) |\n");
+    print("   '-|:.     |-'\n");
+    print("     \\::.    /\n");
+    print("      '::. .'\n");
+    print("        ) (\n");
+    print("      _.' '._\n");
+    print("     `\"\"\"\"\"\"`\n");
+}
