@@ -1,0 +1,628 @@
+# caison-parsor.crush
+#
+# A CAISON parser written in Crush (single-pass edition).
+# CAISON (Crush AI-native Semantic Object Notation, nixpt/caison, SPEC v1.0)
+# is a JSON-shaped config format plus four AI-native primitives:
+#   semantic keys   ~"billing or refund issues": "route to support"
+#   confidence      temperature: 21.5 ~0.8
+#   annotations     port: 8080 @wip { owner: "foreman" }
+#   synthesized     accent: @synthesize("a complimentary color")
+#
+# This program parses a document and prints its JSON projection
+# (SPEC section 6). It projects DURING the parse instead of building a
+# node tree first: this runtime has no nominal structs and forbids field
+# access on function parameters, so a tree IR cannot cross function
+# boundaries -- but strings and ints can, and JSON is a string.
+# The projection is what the conformance corpus tests, so nothing is lost.
+#
+# Parses the embedded sample below. To parse your own document, replace
+# sample_doc() or call parse_document(your_text).
+#
+# Run: crush-run run caison-parsor.crush --cap io.print
+#
+# Runtime constraints this code works around (crush-ast 2026-10-04):
+# - `&&`/`||` do not short-circuit: bounds checks use nested ifs.
+# - `"\r"` lexes as "r" (lexer bug): CR is not treated as whitespace.
+# - No field access on function params: state threads as (src, pos) scalars,
+#   results return as maps read by the caller (a local).
+# - try/catch corrupts control flow after a catch: parse errors are
+#   uncaught throws (the message prints, the program stops).
+# - conv.* needs the stdlib feature (absent here): str_to_float is manual.
+
+# ---------- small helpers ----------
+
+fn char_in(c, set) {
+  let i = 0
+  while i < len(set) {
+    if set[i] == c { return true }
+    i = i + 1
+  }
+  return false
+}
+
+fn is_digit(c) { return char_in(c, "0123456789") }
+
+fn is_namech(c) {
+  if char_in(c, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") { return true }
+  if char_in(c, "0123456789_-") { return true }
+  return false
+}
+
+fn slice(s, a, b) {
+  let out = ""
+  let i = a
+  while i < b {
+    if i < len(s) {
+      out = out + s[i]
+      i = i + 1
+    } else {
+      break
+    }
+  }
+  return out
+}
+
+fn trim(s) {
+  let a = 0
+  let b = len(s)
+  while a < b {
+    if char_in(s[a], " \t\n") { a = a + 1 } else { break }
+  }
+  while b > a {
+    if char_in(s[b - 1], " \t\n") { b = b - 1 } else { break }
+  }
+  return slice(s, a, b)
+}
+
+fn digit_val(c) {
+  let i = 0
+  while i < 10 {
+    if "0123456789"[i] == c { return i }
+    i = i + 1
+  }
+  return 0
+}
+
+# string -> float without conv.to_float (not in this build's capabilities).
+# s must be a valid number shape (we slice it from the source ourselves).
+# NOTE: && does not short-circuit in this runtime, so a bounds check and
+# the indexed read can never share one condition; use nested ifs.
+fn str_to_float(s) {
+  let neg = false
+  let i = 0
+  if s[0] == "-" { neg = true i = 1 }
+  let val = 0.0
+  while i < len(s) {
+    if is_digit(s[i]) {
+      val = val * 10.0 + digit_val(s[i])
+      i = i + 1
+    } else {
+      break
+    }
+  }
+  if i < len(s) {
+    if s[i] == "." {
+      i = i + 1
+      let div = 1.0
+      while i < len(s) {
+        if is_digit(s[i]) {
+          val = val * 10.0 + digit_val(s[i])
+          div = div * 10.0
+          i = i + 1
+        } else {
+          break
+        }
+      }
+      val = val / div
+    }
+  }
+  if i < len(s) {
+    if s[i] == "e" || s[i] == "E" {
+      i = i + 1
+      let exp_neg = false
+      if i < len(s) {
+        if s[i] == "-" { exp_neg = true i = i + 1 } else if s[i] == "+" { i = i + 1 }
+      }
+      let exp = 0
+      while i < len(s) {
+        if is_digit(s[i]) {
+          exp = exp * 10 + digit_val(s[i])
+          i = i + 1
+        } else {
+          break
+        }
+      }
+      let e = 0
+      while e < exp {
+        if exp_neg == true { val = val / 10.0 } else { val = val * 10.0 }
+        e = e + 1
+      }
+    }
+  }
+  if neg == true { val = 0.0 - val }
+  return val
+}
+
+fn join(arr, sep) {
+  let out = ""
+  let i = 0
+  while i < len(arr) {
+    if i > 0 { out = out + sep }
+    out = out + arr[i]
+    i = i + 1
+  }
+  return out
+}
+
+fn find(arr, s) {
+  let i = 0
+  while i < len(arr) {
+    if arr[i] == s { return i }
+    i = i + 1
+  }
+  return -1
+}
+
+# ---------- cursor helpers (state is (src, pos) scalars; never a struct) ----------
+
+fn peek_at(src, pos) {
+  if pos >= len(src) { return "" }
+  return src[pos]
+}
+
+fn skip_ws(src, pos) {
+  while true {
+    let c = peek_at(src, pos)
+    if c == "" { return pos }
+    if char_in(c, " \t\n") { pos = pos + 1 } else if c == "#" {
+      while peek_at(src, pos) != "" && peek_at(src, pos) != "\n" { pos = pos + 1 }
+    } else { return pos }
+  }
+  return pos
+}
+
+fn err_at(src, pos, msg) {
+  let line = 1
+  let col = 1
+  let i = 0
+  while i < pos {
+    if src[i] == "\n" { line = line + 1 col = 1 } else { col = col + 1 }
+    i = i + 1
+  }
+  throw "line " + line + ", col " + col + ": " + msg
+}
+
+# ---------- lexical pieces; each returns {"v": ..., "pos": ...} ----------
+
+fn parse_string(src, pos) {
+  pos = pos + 1
+  let out = ""
+  while true {
+    let c = peek_at(src, pos)
+    if c == "" { err_at(src, pos, "Unclosed string") }
+    if c == "\"" { return {"v": out, "pos": pos + 1} }
+    if c == "\\" {
+      pos = pos + 1
+      let e = peek_at(src, pos)
+      if e == "" { err_at(src, pos, "Unclosed string") }
+      pos = pos + 1
+      if e == "n" { out = out + "\n" } else if e == "t" { out = out + "\t" } else if e == "b" { out = out + "\b" } else if e == "f" { out = out + "\f" } else if e == "\"" { out = out + "\"" } else if e == "\\" { out = out + "\\" } else if e == "/" { out = out + "/" } else { err_at(src, pos, "bad escape: \\" + e) }
+    } else {
+      out = out + c
+      pos = pos + 1
+    }
+  }
+  return {"v": out, "pos": pos}
+}
+
+fn parse_number(src, pos) {
+  let start = pos
+  if peek_at(src, pos) == "-" { pos = pos + 1 }
+  if is_digit(peek_at(src, pos)) { } else { err_at(src, pos, "expected a number") }
+  while is_digit(peek_at(src, pos)) { pos = pos + 1 }
+  if peek_at(src, pos) == "." {
+    pos = pos + 1
+    while is_digit(peek_at(src, pos)) { pos = pos + 1 }
+  }
+  if peek_at(src, pos) == "e" || peek_at(src, pos) == "E" {
+    pos = pos + 1
+    if peek_at(src, pos) == "+" || peek_at(src, pos) == "-" { pos = pos + 1 }
+    while is_digit(peek_at(src, pos)) { pos = pos + 1 }
+  }
+  return {"v": str_to_float(slice(src, start, pos)), "pos": pos}
+}
+
+fn parse_lit(src, pos, word) {
+  let i = 0
+  while i < len(word) {
+    if peek_at(src, pos) != word[i] { err_at(src, pos, "bad literal, expected " + word) }
+    pos = pos + 1
+    i = i + 1
+  }
+  return pos
+}
+
+fn parse_name(src, pos) {
+  let out = ""
+  while is_namech(peek_at(src, pos)) {
+    out = out + peek_at(src, pos)
+    pos = pos + 1
+  }
+  if out == "" { err_at(src, pos, "expected a name") }
+  return {"v": out, "pos": pos}
+}
+
+fn parse_annotation(src, pos) {
+  pos = pos + 1
+  let nr = parse_name(src, pos)
+  let name = nr.v
+  pos = nr.pos
+  let args = ""
+  let has_args = false
+  let pkeys = []
+  let pvals = []
+  pos = skip_ws(src, pos)
+  if peek_at(src, pos) == "(" {
+    pos = pos + 1
+    pos = skip_ws(src, pos)
+    if peek_at(src, pos) == "\"" {
+      let sr = parse_string(src, pos)
+      args = sr.v
+      pos = sr.pos
+      has_args = true
+    } else {
+      let depth = 1
+      let raw = ""
+      while depth > 0 {
+        let c = peek_at(src, pos)
+        if c == "" { err_at(src, pos, "Unclosed annotation args") }
+        pos = pos + 1
+        if c == "(" { depth = depth + 1 } else if c == ")" { depth = depth - 1 }
+        if depth > 0 { raw = raw + c }
+      }
+      args = trim(raw)
+      has_args = true
+    }
+    pos = skip_ws(src, pos)
+  }
+  let v = "{\"name\": " + json_escape(name) + ", \"args\": "
+  if has_args { v = v + json_escape(args) } else { v = v + "null" }
+  v = v + ", \"properties\": {"
+  if peek_at(src, pos) == "{" {
+    pos = pos + 1
+    pos = skip_ws(src, pos)
+    if peek_at(src, pos) != "}" {
+      while true {
+        pos = skip_ws(src, pos)
+        let pr = parse_name(src, pos)
+        pos = pr.pos
+        pos = skip_ws(src, pos)
+        if peek_at(src, pos) != ":" { err_at(src, pos, "malformed annotation property: expected colon") }
+        pos = skip_ws(src, pos + 1)
+        if peek_at(src, pos) != "\"" { err_at(src, pos, "malformed annotation property: value must be a string") }
+        let vr = parse_string(src, pos)
+        pos = vr.pos
+        pkeys.push(pr.v)
+        pvals.push(vr.v)
+        pos = skip_ws(src, pos)
+        if peek_at(src, pos) == "," {
+          pos = skip_ws(src, pos + 1)
+          if peek_at(src, pos) == "}" { pos = pos + 1 break }
+        } else if peek_at(src, pos) == "}" {
+          pos = pos + 1
+          break
+        } else {
+          err_at(src, pos, "Unclosed annotation properties")
+        }
+      }
+    } else {
+      pos = pos + 1
+    }
+  }
+  v = v + json_escape_props(pkeys, pvals) + "}}"
+  return {"v": v, "name": name, "args": args, "has_args": has_args, "pkeys": pkeys, "pvals": pvals, "pos": pos}
+}
+
+fn json_escape_props(pkeys, pvals) {
+  let out = ""
+  let j = 0
+  while j < len(pkeys) {
+    if j > 0 { out = out + ", " }
+    out = out + json_escape(pkeys[j]) + ": " + json_escape(pvals[j])
+    j = j + 1
+  }
+  return out
+}
+
+fn parse_key(src, pos) {
+  pos = skip_ws(src, pos)
+  if peek_at(src, pos) == "~" {
+    pos = skip_ws(src, pos + 1)
+    if peek_at(src, pos) != "\"" { err_at(src, pos, "semantic key needs a quoted string after ~") }
+  }
+  if peek_at(src, pos) == "\"" {
+    let sr = parse_string(src, pos)
+    return {"v": sr.v, "pos": sr.pos}
+  }
+  let out = ""
+  while true {
+    let c = peek_at(src, pos)
+    if c == "" || c == ":" || c == "\n" { break }
+    out = out + c
+    pos = pos + 1
+  }
+  return {"v": trim(out), "pos": pos}
+}
+
+# ---------- values and nodes ----------
+
+fn parse_value(src, pos) {
+  pos = skip_ws(src, pos)
+  let c = peek_at(src, pos)
+  if c == "\"" {
+    let sr = parse_string(src, pos)
+    return {"v": json_escape(sr.v), "pos": sr.pos}
+  }
+  if c == "{" { return parse_object(src, pos) }
+  if c == "[" { return parse_array(src, pos) }
+  if c == "@" {
+    let nr = parse_name(src, pos + 1)
+    if nr.v != "synthesize" { err_at(src, pos, "expected a value, found @" + nr.v) }
+    pos = skip_ws(src, nr.pos)
+    if peek_at(src, pos) != "(" { err_at(src, pos, "Unclosed @synthesize: expected '('") }
+    pos = skip_ws(src, pos + 1)
+    if peek_at(src, pos) != "\"" { err_at(src, pos, "@synthesize needs a quoted description") }
+    let dr = parse_string(src, pos)
+    pos = skip_ws(src, dr.pos)
+    if peek_at(src, pos) != ")" { err_at(src, pos, "Unclosed @synthesize: expected ')'") }
+    return {"v": "{\"$synthesize\": " + json_escape(dr.v) + "}", "pos": pos + 1}
+  }
+  if c == "-" || is_digit(c) {
+    let nr = parse_number(src, pos)
+    return {"v": "" + nr.v, "pos": nr.pos}
+  }
+  if c == "t" { return {"v": "true", "pos": parse_lit(src, pos, "true")} }
+  if c == "f" { return {"v": "false", "pos": parse_lit(src, pos, "false")} }
+  if c == "n" { return {"v": "null", "pos": parse_lit(src, pos, "null")} }
+  err_at(src, pos, "expected a value")
+  return {"v": "null", "pos": pos}
+}
+
+fn wrap_node(bare, conf, anns) {
+  if conf < 0.0 && len(anns) == 0 { return bare }
+  let out = "{\"$value\": " + bare
+  if conf >= 0.0 { out = out + ", \"$confidence\": " + conf }
+  if len(anns) > 0 { out = out + ", \"$annotations\": [" + join(anns, ", ") + "]" }
+  return out + "}"
+}
+
+fn skip_inline(src, pos) {
+  while true {
+    let c = peek_at(src, pos)
+    if c == " " || c == "\t" { pos = pos + 1 } else { return pos }
+  }
+  return pos
+}
+
+fn parse_node(src, pos) {
+  pos = skip_ws(src, pos)
+  let vr = parse_value(src, pos)
+  let bare = vr.v
+  pos = vr.pos
+  let conf = -1.0
+  let anns = []
+  while true {
+    pos = skip_inline(src, pos)
+    let c = peek_at(src, pos)
+    if c == "~" {
+      pos = skip_inline(src, pos + 1)
+      if conf >= 0.0 { err_at(src, pos, "duplicate confidence on one node") }
+      let nr = parse_number(src, pos)
+      pos = nr.pos
+      if nr.v < 0.0 || nr.v > 1.0 { err_at(src, pos, "confidence outside [0.0, 1.0]: " + nr.v) }
+      conf = nr.v
+    } else if c == "@" {
+      let ar = parse_annotation(src, pos)
+      anns.push(ar.v)
+      pos = ar.pos
+    } else {
+      break
+    }
+  }
+  return {"v": wrap_node(bare, conf, anns), "bare": bare, "conf": conf, "anns": anns, "pos": pos}
+}
+
+fn parse_object(src, pos) {
+  pos = pos + 1
+  let keys = []
+  let out = "{"
+  let first = true
+  pos = skip_ws(src, pos)
+  if peek_at(src, pos) == "}" { return {"v": "{}", "pos": pos + 1} }
+  while true {
+    pos = skip_ws(src, pos)
+    let kr = parse_key(src, pos)
+    pos = kr.pos
+    if len(kr.v) > 0 {
+      if kr.v[0] == "$" { err_at(src, pos, "keys beginning with $ are reserved") }
+    }
+    if find(keys, kr.v) >= 0 { err_at(src, pos, "Duplicate key: " + kr.v) }
+    keys.push(kr.v)
+    pos = skip_ws(src, pos)
+    if peek_at(src, pos) != ":" { err_at(src, pos, "expected colon after key") }
+    let nr = parse_node(src, pos + 1)
+    pos = nr.pos
+    if first { first = false } else { out = out + ", " }
+    out = out + json_escape(kr.v) + ": " + nr.v
+    pos = skip_ws(src, pos)
+    let c = peek_at(src, pos)
+    if c == "," {
+      pos = skip_ws(src, pos + 1)
+      if peek_at(src, pos) == "}" { return {"v": out + "}", "pos": pos + 1} }
+    } else if c == "}" {
+      return {"v": out + "}", "pos": pos + 1}
+    } else {
+      err_at(src, pos, "Unclosed object: expected ',' or '}'")
+    }
+  }
+  return {"v": out + "}", "pos": pos}
+}
+
+fn parse_array(src, pos) {
+  pos = pos + 1
+  let out = "["
+  let first = true
+  pos = skip_ws(src, pos)
+  if peek_at(src, pos) == "]" { return {"v": "[]", "pos": pos + 1} }
+  while true {
+    let nr = parse_node(src, pos)
+    pos = nr.pos
+    if first { first = false } else { out = out + ", " }
+    out = out + nr.v
+    pos = skip_ws(src, pos)
+    let c = peek_at(src, pos)
+    if c == "," {
+      pos = skip_ws(src, pos + 1)
+      if peek_at(src, pos) == "]" { return {"v": out + "]", "pos": pos + 1} }
+    } else if c == "]" {
+      return {"v": out + "]", "pos": pos + 1}
+    } else {
+      err_at(src, pos, "Unclosed array: expected ',' or ']'")
+    }
+  }
+  return {"v": out + "]", "pos": pos}
+}
+
+# ---------- document ----------
+
+fn parse_section_name(src, pos) {
+  let out = ""
+  while true {
+    let c = peek_at(src, pos)
+    if c == "" || c == "]" || c == "\n" { break }
+    out = out + c
+    pos = pos + 1
+  }
+  let t = trim(out)
+  if t == "" { err_at(src, pos, "empty section name") }
+  return {"v": t, "pos": pos}
+}
+
+fn parse_document(src) {
+  let pos = skip_ws(src, 0)
+  let n = len(src)
+  let version = "1.0"
+  let pending = []
+  let scope_names = [""]
+  let scope_keys = [[]]
+  let scope_pairs = [[]]
+  let cur = 0
+  while pos < n {
+    let c = peek_at(src, pos)
+    if c == "@" {
+      let ar = parse_annotation(src, pos)
+      pos = ar.pos
+      if ar.name == "caison" || ar.name == "cson" {
+        if ar.has_args == true {
+          version = ar.args
+        } else {
+          let i = 0
+          while i < len(ar.pkeys) {
+            if ar.pkeys[i] == "version" { version = ar.pvals[i] }
+            i = i + 1
+          }
+        }
+      } else {
+        pending.push(ar.v)
+      }
+    } else if c == "[" {
+      let nr = parse_section_name(src, pos + 1)
+      pos = skip_ws(src, nr.pos)
+      if peek_at(src, pos) != "]" { err_at(src, pos, "Unclosed section: expected ']'") }
+      pos = pos + 1
+      let nc = peek_at(src, pos)
+      if nc != "" && nc != "\n" { err_at(src, pos, "expected newline after section header") }
+      let idx = find(scope_names, nr.v)
+      if idx < 0 {
+        scope_names.push(nr.v)
+        scope_keys.push([])
+        scope_pairs.push([])
+        cur = len(scope_names) - 1
+      } else {
+        cur = idx
+      }
+    } else {
+      let kr = parse_key(src, pos)
+      pos = kr.pos
+      let keys = scope_keys[cur]
+      if find(keys, kr.v) >= 0 { err_at(src, pos, "Duplicate key: " + kr.v) }
+      keys.push(kr.v)
+      pos = skip_ws(src, pos)
+      if peek_at(src, pos) != ":" { err_at(src, pos, "expected colon after key") }
+      let nr = parse_node(src, pos + 1)
+      pos = nr.pos
+      let anns = nr.anns
+      let j = 0
+      while j < len(pending) {
+        anns.push(pending[j])
+        j = j + 1
+      }
+      pending = []
+      let pairs = scope_pairs[cur]
+      pairs.push(json_escape(kr.v) + ": " + wrap_node(nr.bare, nr.conf, anns))
+    }
+    pos = skip_ws(src, pos)
+  }
+  if len(pending) > 0 { err_at(src, pos, "dangling annotation with no following node") }
+  let out = "{"
+  let first = true
+  let i = 0
+  while i < len(scope_pairs[0]) {
+    if first { first = false } else { out = out + ", " }
+    out = out + scope_pairs[0][i]
+    i = i + 1
+  }
+  let s = 1
+  while s < len(scope_names) {
+    if first { first = false } else { out = out + ", " }
+    out = out + json_escape(scope_names[s]) + ": {" + join(scope_pairs[s], ", ") + "}"
+    s = s + 1
+  }
+  return {"v": out + "}", "ver": version}
+}
+
+# ---------- JSON string escaping ----------
+
+fn json_escape(s) {
+  let out = ""
+  let i = 0
+  while i < len(s) {
+    let c = s[i]
+    if c == "\"" { out = out + "\\\"" } else if c == "\\" { out = out + "\\\\" } else if c == "\n" { out = out + "\\n" } else if c == "\t" { out = out + "\\t" } else { out = out + c }
+    i = i + 1
+  }
+  return "\"" + out + "\""
+}
+
+# ---------- entry point ----------
+
+fn sample_doc() {
+  return "# caison-parsor demo: every primitive in one document\n@caison { version: \"1.0\" }\n\nname: \"avalanche\"\nport: 8080 @wip { owner: \"foreman\" }\ntemperature: 21.5 ~0.8\nratio: 0.5 @note ~0.9\n~\"billing or refund issues\": \"route to support\"\naccent: @synthesize(\"a complimentary color to #3366cc\")\ntags: [1 ~0.5, \"x\" @note, 2]\nnested: { host: \"localhost\" ~0.9, port: 8080, }\n\n[server]\nhost: \"localhost\"\nretries: 3\n"
+}
+
+fn run(src) {
+  let doc = parse_document(src)
+  print("caison " + doc.ver)
+  print(doc.v)
+  return
+}
+
+# NOTE (2026-10-04): no try/catch here. This runtime's exception handler
+# corrupts control flow after a catch (re-runs try-block statements with
+# null locals, runs the continuation twice), so catching parse errors
+# does more harm than good. An uncaught throw prints the message and
+# stops, which is the honest behavior for a parser.
+fn main() {
+  run(sample_doc())
+  return
+}
