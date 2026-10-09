@@ -57,6 +57,17 @@ string capabilities rather than packing state into one integer. The "no mutable 
 below was true when the games were written — they predate (or independently missed) crush-ast's
 CRUSH-7 array fix — but arrays work now, and these are the entries that prove it.
 
+## Agent-written tools
+
+Games show an agent can *write* Crush. The next question is whether you can let an agent write a
+tool and **run it without reading every line**. [`agents/log-triage/`](agents/log-triage/) is the
+first entry: a log summariser that declares exactly what it can touch
+(`@capabilities [fs.list, fs.cat, time.now_iso]`). `crush-run caps` shows what it needs without
+running it, a run without those grants is refused before anything executes, and a variant that
+quietly posts the summary to a server doesn't compile, or, if the agent also edits the declaration,
+is visible in that one line and refused by the same grants. See the README there for the whole
+walkthrough with real output.
+
 ## Real language constraints every model had to work around
 
 Discovered independently, converged on the same answers:
