@@ -34,6 +34,33 @@ state through recursion-as-arguments rather than mutable arrays (a real language
 a stylistic choice — see below); the RPS tournament instead threads scalar scores through
 sequential match calls over `while` loops.
 
+## Verification status
+
+Every program here was re-run on **crush-ast `3ae0b4a`** (main, 2026-10-16, debug build) with
+`crush-run run --max-steps 500000000 FILE < /dev/null`. All of them run, unchanged, to their
+documented conclusion:
+
+| Program | Ends with | VM steps |
+|---|---|---|
+| `games/pong.crush` | `draw 0-0` | 2,303,450 |
+| `games/tictactoe.crush` | `game over: draw` | 117,606 |
+| `games/lights_out.crush` | `board solved in 8 moves` | 189,907 |
+| `games/game_of_life.crush` | blinker oscillating, gen 0 to gen 6 | 286,738 |
+| `games/blackjack.crush` | `final bankroll: 120` | 5,631 |
+| `games/blackjack_interactive.crush` | (stdin at EOF) `You leave the table with $100.` | 92 |
+| `games/pong-deepseek.crush` | `time's up — final score: left 0 : 0 right` | 1,245,978 |
+| `games/fifteen_puzzle.crush` | `solved in 6 moves.` | 77,324 |
+| `games/breakout.crush` | `out of ticks — final score: 140` | 5,593,804 |
+| `games/rps_tournament.crush` | `champion: Cycler!` | 3,289 |
+| `forth/forth.crush` | five Forth programs | 63,281 |
+| `brainfuck/brainfuck.crush` | `Hello World!`, A–Z, 0–9 | 94,146 |
+| `caison/caison-parsor.crush` | the parsed document as JSON | 72,957 |
+| `agents/log-triage/` | the walkthrough in its README, output identical | — |
+
+(`agents/log-triage/sample-logs/*.log` were missing from the repo: the top-level `.gitignore`
+ignores `*.log`, so the tool printed `no .log files found`. They are now committed, and
+reproduce the README's output exactly.)
+
 ## Beyond the games
 
 Not every entry is a game. Two entries host *other languages* on top of Crush — the first
@@ -70,7 +97,13 @@ walkthrough with real output.
 
 ## Real language constraints every model had to work around
 
-Discovered independently, converged on the same answers:
+Discovered independently, converged on the same answers. This section records the language as it
+was when the games were written. **As of crush-ast `3ae0b4a` (2026-10-16) most of these are
+lifted:** arrays mutate in place (`a[i] = v`, `a.push(x)`); `math.seed` / `math.random_int` are a
+deterministic RNG; `io.read()` reads stdin (see `blackjack_interactive.crush`) and `time.sleep`
+exists behind `--time`; closures, struct methods (`impl`/`trait`) and green tasks landed; the
+trailing-return bug and the `revisit-if` hang are fixed. Cross-file `import` still doesn't load
+anything (crush-ast CRUSH-110). The games are kept as written.
 
 - **No mutable array index-assignment, no chainable `.push()`.** All persistent per-tick state —
   ball position, board contents, scores, RNG seed — has to be passed as plain function arguments
@@ -131,7 +164,9 @@ $BIN/crushc /path/to/awesome-crush/games/pong.crush -o /tmp/pong.cvm1
 $BIN/crush-run run /tmp/pong.cvm1 --cap io.print --cap str.concat --max-steps 50000000
 ```
 
-The `--max-steps` bump matters — these are real, non-trivial programs (pong.crush needs well over
+`crush-run run games/pong.crush --max-steps 50000000` (no separate compile step, no `--cap`
+flags) works too on current crush-ast: `.crush` files compile on the fly, and the capabilities
+these programs use are ambient. The `--max-steps` bump matters — these are real, non-trivial programs (pong.crush needs well over
 the VM's 1,000,000-instruction default once a board renders every frame), and the default budget
 is tuned for much smaller test fixtures.
 
