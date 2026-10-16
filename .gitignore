@@ -1,2 +1,4 @@
 *.cvm1
 *.log
+# the log-triage sample input is part of the walkthrough
+!agents/log-triage/sample-logs/*.log

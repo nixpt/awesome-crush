@@ -1,0 +1,4 @@
+2026-10-09T07:01:15Z INFO worker started
+2026-10-09T07:02:45Z WARN queue depth 120
+2026-10-09T07:02:50Z ERROR db timeout after 5000ms
+2026-10-09T07:05:00Z INFO batch 42 done
