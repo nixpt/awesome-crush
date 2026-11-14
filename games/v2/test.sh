@@ -72,6 +72,11 @@ check_game game_of_life life.crush \
     "watch_seed7|--seed 7 --width 12 --height 6 --generations 5 -vv" \
     "headless_seed42|--seed 42 --headless --generations 30 -v"
 
+capture "$HERE/game_of_life/life.crush" --width 5
+if [ "$RC" -eq 2 ] && [[ "$ERR$OUT" == *"--width requires --height"* ]]; then
+    ok "game_of_life --width alone exits 2 (together group)"
+else bad "game_of_life --width alone" "rc=$RC: $ERR$OUT"; fi
+
 check_game tictactoe tictactoe.crush \
     "watch_seed3|--seed 3 --rounds 2 --x random --o first" \
     "headless_seed9|--seed 9 --rounds 8 --x random --o minimax --headless -vv" \
