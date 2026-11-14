@@ -16,6 +16,11 @@ they now also live), this repo collects them side by side with the story of how 
 
 ## The games
 
+> **`games/v2/`** is the current-toolchain set: `game_of_life` and `tictactoe` rewritten as real CLIs on
+> [facet](https://github.com/nixpt/facet) 0.3.0 (options, seeds, count flags, option groups), with structs,
+> arrays and golden-output tests. See [`games/v2/README.md`](games/v2/README.md). The tables below keep the
+> original single-file games unchanged.
+
 | Game | Author | State encoding | Notes |
 |---|---|---|---|
 | [`games/pong.crush`](games/pong.crush) | Ornith-1.5-35B-A3B (MoE) | Many scalar args threaded through recursion | v1→v2 iteration: found and self-fixed two real rendering bugs (a ball-on-column-priority bug that hid whatever wall/paddle/center-line shared its column) |

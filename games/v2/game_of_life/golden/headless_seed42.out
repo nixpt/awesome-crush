@@ -1,0 +1,42 @@
+gen 0  pop 72
+gen 1 pop 82
+gen 2 pop 60
+gen 3 pop 53
+gen 4 pop 33
+gen 5 pop 27
+gen 6 pop 18
+gen 7 pop 17
+gen 8 pop 11
+gen 9 pop 8
+gen 10 pop 6
+gen 11 pop 5
+gen 12 pop 5
+gen 13 pop 5
+gen 14 pop 5
+gen 15 pop 5
+gen 16 pop 5
+gen 17 pop 5
+gen 18 pop 5
+gen 19 pop 5
+gen 20 pop 5
+gen 21 pop 5
+gen 22 pop 5
+gen 23 pop 5
+gen 24 pop 5
+gen 25 pop 5
+gen 26 pop 5
+gen 27 pop 5
+gen 28 pop 5
+gen 29 pop 5
+gen 30 pop 5
+....................
+....................
+....................
+....................
+....................
+.........#..........
+........#.#.........
+........##..........
+....................
+....................
+summary: seed=42 size=20x10 gens=30 pop=5 births=132 deaths=199
