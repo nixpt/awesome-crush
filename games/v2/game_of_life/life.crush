@@ -1,0 +1,154 @@
+// Conway's Game of Life as a facet 0.3.0 CLI.
+//
+//   crush-run run -L /workspace/projects/facet --time --max-steps 200000000 \
+//       life.crush -- --seed 7 --generations 10 -v
+//
+// Deterministic: the only randomness is an LCG seeded by --seed; no clock is
+// read (the --time grant is needed only because --speed calls time.sleep).
+// The board is bounded (cells past the edge are dead).
+
+import facet { facet_run, facet_fail }
+
+struct Life { w: Int, h: Int, cells, gen: Int, births: Int, deaths: Int, rng: Int }
+
+impl Life {
+    fn new(w, h, seed) {
+        return Life { w: w, h: h, cells: [], gen: 0, births: 0, deaths: 0, rng: seed }
+    }
+
+    // LCG (glibc constants), 31 bit; uses the high bits, which are the good ones.
+    fn rand(self, n) {
+        self.rng = (self.rng * 1103515245 + 12345) % 2147483648
+        return (self.rng / 65536) % n
+    }
+
+    fn fill(self, density) {
+        let n = self.w * self.h
+        let i = 0
+        while i < n {
+            let v = 0
+            if self.rand(100) < density { v = 1 }
+            array.push(self.cells, v)
+            i = i + 1
+        }
+        return 0
+    }
+
+    fn alive(self, r, c) {
+        if r < 0 || r >= self.h || c < 0 || c >= self.w { return 0 }
+        return self.cells[r * self.w + c]
+    }
+
+    fn neighbours(self, r, c) {
+        let n = 0
+        for dr in -1..=1 {
+            for dc in -1..=1 {
+                if dr != 0 || dc != 0 { n = n + self.alive(r + dr, c + dc) }
+            }
+        }
+        return n
+    }
+
+    fn population(self) {
+        let p = 0
+        for v in self.cells { p = p + v }
+        return p
+    }
+
+    // One generation; returns [births, deaths].
+    fn step(self) {
+        let next = []
+        let born = 0
+        let died = 0
+        for r in 0..self.h {
+            for c in 0..self.w {
+                let n = self.neighbours(r, c)
+                let was = self.cells[r * self.w + c]
+                let now = 0
+                if was == 1 && (n == 2 || n == 3) { now = 1 }
+                if was == 0 && n == 3 { now = 1 }
+                if was == 0 && now == 1 { born = born + 1 }
+                if was == 1 && now == 0 { died = died + 1 }
+                array.push(next, now)
+            }
+        }
+        self.cells = next
+        self.gen = self.gen + 1
+        self.births = self.births + born
+        self.deaths = self.deaths + died
+        return [born, died]
+    }
+
+    fn render(self) {
+        let out = []
+        for r in 0..self.h {
+            let line = ""
+            for c in 0..self.w {
+                if self.cells[r * self.w + c] == 1 { line = line + "#" } else { line = line + "." }
+            }
+            array.push(out, line)
+        }
+        return str.join(out, "\n")
+    }
+}
+
+fn show(life, speed) {
+    io.print("gen ", life.gen, "  pop ", life.population())
+    io.print(life.render())
+    if speed > 0 { time.sleep(speed) }
+    return 0
+}
+
+fn run(spec, args) {
+    let w = args.width
+    let h = args.height
+    if w < 1 || w > 200 { facet_fail(spec, "--width must be 1..200") }
+    if h < 1 || h > 200 { facet_fail(spec, "--height must be 1..200") }
+    if args.density < 0 || args.density > 100 { facet_fail(spec, "--density must be 0..100") }
+    if args.generations < 0 { facet_fail(spec, "--generations must be >= 0") }
+    if args.speed < 0 { facet_fail(spec, "--speed must be >= 0") }
+
+    let life = Life::new(w, h, args.seed)
+    life.fill(args.density)
+    let watch = !args.headless
+    let v = args.verbose
+    if watch { show(life, args.speed) }
+    if v >= 1 && !watch { io.print("gen 0  pop ", life.population()) }
+    let g = 0
+    while g < args.generations {
+        let bd = life.step()
+        g = g + 1
+        if watch { show(life, args.speed) }
+        if v >= 1 && !watch { io.print("gen ", life.gen, " pop ", life.population()) }
+        if v >= 2 { io.print("  births ", bd[0], " deaths ", bd[1]) }
+    }
+    if !watch { io.print(life.render()) }
+    let head = "summary: seed=" + args.seed + " size=" + w + "x" + h + " gens=" + life.gen
+    let tail = " pop=" + life.population() + " births=" + life.births + " deaths=" + life.deaths
+    io.print(head + tail)
+    return 0
+}
+
+fn build_spec() {
+    let width = { short: "-W", long: "--width", type: "int", default: 20, help: "board width, 1..200" }
+    let height = { short: "-H", long: "--height", type: "int", default: 10, help: "board height, 1..200" }
+    let seed = { short: "-s", long: "--seed", type: "int", default: 1, help: "LCG seed; same seed, same run" }
+    let density = { short: "-d", long: "--density", type: "int", default: 35, help: "percent alive at the start, 0..100" }
+    let gens = { short: "-g", long: "--generations", type: "int", default: 10, help: "generations to run" }
+    let speed = { long: "--speed", type: "int", default: 0, help: "ms to pause after each frame; 0 = none (needs --time)" }
+    let watch = { long: "--watch", help: "print every frame (the default)" }
+    let headless = { long: "--headless", help: "print only the final board and a summary" }
+    let verbose = { short: "-v", long: "--verbose", count: true, help: "-v: population per generation; -vv: also births and deaths" }
+    let groups = [{ exclusive: ["--watch", "--headless"] }, { together: ["--width", "--height"] }]
+    let spec = { name: "life", version: "2.0.0", about: "Conway's Game of Life on a bounded board." }
+    spec.epilog = "Exit status: 0 ok, 2 bad arguments."
+    spec.options = [width, height, seed, density, gens, speed]
+    spec.flags = [watch, headless, verbose]
+    spec.groups = groups
+    return spec
+}
+
+fn main() {
+    let spec = build_spec()
+    facet_run(spec, { main: |args| => run(spec, args) })
+}

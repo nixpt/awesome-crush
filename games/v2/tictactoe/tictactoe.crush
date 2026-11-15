@@ -1,0 +1,177 @@
+// Tic-tac-toe as a facet 0.3.0 CLI: play --rounds games between two strategies.
+//
+//   crush-run run -L /workspace/projects/facet --max-steps 500000000 \
+//       tictactoe.crush -- --seed 3 --rounds 5 --x random --o minimax --headless
+//
+// Deterministic: the only randomness is an LCG seeded by --seed; no clock.
+//
+// State is a 9-character string ("X", "O", "."), cell 0 top-left, row-major,
+// so a future `--state XO.X..O.. --move` mode (one move in, one out) needs only
+// parse_board(s) + pick_move(strategy, board, mark, rng) + format_board(board);
+// pick_move is already a pure function of (board, mark, rng state).
+
+import facet { facet_run, facet_fail }
+
+struct Rng { state: Int }
+
+impl Rng {
+    fn new(seed) { return Rng { state: seed } }
+
+    // LCG (glibc constants), 31 bit; uses the high bits.
+    fn next(self, n) {
+        self.state = (self.state * 1103515245 + 12345) % 2147483648
+        return (self.state / 65536) % n
+    }
+}
+
+fn parse_board(s) {
+    let b = []
+    for i in 0..9 { array.push(b, str.substring(s, i, i + 1)) }
+    return b
+}
+
+fn format_board(b) { return str.join(b, "") }
+
+fn pretty(b) {
+    let rows = []
+    for r in 0..3 {
+        array.push(rows, b[r * 3] + " " + b[r * 3 + 1] + " " + b[r * 3 + 2])
+    }
+    return str.join(rows, "\n")
+}
+
+fn other(mark) {
+    if mark == "X" { return "O" }
+    return "X"
+}
+
+fn free_cells(b) {
+    let out = []
+    for i in 0..9 { if b[i] == "." { array.push(out, i) } }
+    return out
+}
+
+// "X" or "O" when that mark has three in a row, "" otherwise.
+fn winner(b) {
+    let rows = [[0, 1, 2], [3, 4, 5], [6, 7, 8]]
+    let cols = [[0, 3, 6], [1, 4, 7], [2, 5, 8]]
+    let lines = rows + cols + [[0, 4, 8], [2, 4, 6]]
+    for ln in lines {
+        let a = b[ln[0]]
+        if a != "." && a == b[ln[1]] && a == b[ln[2]] { return a }
+    }
+    return ""
+}
+
+// Negamax with alpha-beta from `mark`'s point of view: +1 win, 0 draw, -1 loss.
+// Wins found earlier score higher (depth bonus) so it takes the fastest win.
+fn negamax(b, mark, alpha, beta, depth) {
+    let w = winner(b)
+    if w == mark { return 10 - depth }
+    if w != "" { return depth - 10 }
+    let free = free_cells(b)
+    if len(free) == 0 { return 0 }
+    let best = -100
+    let a = alpha
+    for m in free {
+        b[m] = mark
+        let score = 0 - negamax(b, other(mark), 0 - beta, 0 - a, depth + 1)
+        b[m] = "."
+        if score > best { best = score }
+        if best > a { a = best }
+        if a >= beta { return best }
+    }
+    return best
+}
+
+fn best_move(b, mark) {
+    let free = free_cells(b)
+    // The empty board is symmetric: take the corner, skip a 9-ply search.
+    if len(free) == 9 { return 0 }
+    let best = -100
+    let move = free[0]
+    for m in free {
+        b[m] = mark
+        let score = 0 - negamax(b, other(mark), -100, 100, 1)
+        b[m] = "."
+        if score > best {
+            best = score
+            move = m
+        }
+    }
+    return move
+}
+
+// The one entry point an arena driver would call: board + mark in, cell out.
+fn pick_move(strategy, b, mark, rng) {
+    let free = free_cells(b)
+    if strategy == "first" { return free[0] }
+    if strategy == "random" { return free[rng.next(len(free))] }
+    return best_move(b, mark)
+}
+
+// Plays one game; returns { winner, moves, board }.
+fn play(sx, so, rng, watch) {
+    let b = parse_board(".........")
+    let mark = "X"
+    let moves = []
+    while winner(b) == "" && len(free_cells(b)) > 0 {
+        let strat = so
+        if mark == "X" { strat = sx }
+        let m = pick_move(strat, b, mark, rng)
+        b[m] = mark
+        array.push(moves, mark + conv.to_str(m))
+        if watch {
+            io.print(mark, " plays ", m)
+            io.print(pretty(b))
+        }
+        mark = other(mark)
+    }
+    return { winner: winner(b), moves: moves, board: b }
+}
+
+fn run(spec, args) {
+    if args.rounds < 0 { facet_fail(spec, "--rounds must be >= 0") }
+    let rng = Rng::new(args.seed)
+    let watch = !args.headless
+    let v = args.verbose
+    let x = 0
+    let o = 0
+    let d = 0
+    for g in 1..=args.rounds {
+        if watch { io.print("game ", g, ": X=", args.x, " O=", args.o) }
+        let res = play(args.x, args.o, rng, watch)
+        let w = res.winner
+        if w == "X" { x = x + 1 } else { if w == "O" { o = o + 1 } else { d = d + 1 } }
+        let label = "draw"
+        if w != "" { label = w + " wins" }
+        if v >= 1 { io.print("game ", g, ": ", label, " moves ", str.join(res.moves, " ")) }
+        if v >= 2 && !watch { io.print(format_board(res.board)) }
+        if watch { io.print(label) }
+    }
+    io.print("result: X=", x, " O=", o, " draw=", d)
+    return 0
+}
+
+fn build_spec() {
+    let strat = ["random", "minimax", "first"]
+    let x = { short: "-x", long: "--x", type: "str", default: "random", choices: strat, help: "strategy for X (moves first)" }
+    let o = { short: "-o", long: "--o", type: "str", default: "random", choices: strat, help: "strategy for O" }
+    let seed = { short: "-s", long: "--seed", type: "int", default: 1, help: "LCG seed; same seed, same games" }
+    let rounds = { short: "-r", long: "--rounds", type: "int", default: 3, help: "number of games" }
+    let watch = { long: "--watch", help: "print every move (the default)" }
+    let headless = { long: "--headless", help: "print only the tally line (plus -v lines)" }
+    let verbose = { short: "-v", long: "--verbose", count: true, help: "-v: a line per game with its moves; -vv: also the final board" }
+    let groups = [{ exclusive: ["--watch", "--headless"] }]
+    let spec = { name: "tictactoe", version: "2.0.0", about: "Tic-tac-toe between two strategies." }
+    spec.epilog = "Last line: result: X=<n> O=<n> draw=<n>. Exit status: 0 ok, 2 bad arguments."
+    spec.options = [x, o, seed, rounds]
+    spec.flags = [watch, headless, verbose]
+    spec.groups = groups
+    return spec
+}
+
+fn main() {
+    let spec = build_spec()
+    facet_run(spec, { main: |args| => run(spec, args) })
+}
