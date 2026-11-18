@@ -1,0 +1,48 @@
+@caison { version: "1.0" }
+
+schema: "milestones/1"
+
+project: {
+  name: "awesome-crush"
+  kind: "repo"
+  lifecycle: "active" @verified { at: "2026-11-18", by: "altair" }
+  lifecycle_since: "2026-08-20"
+  home: "zorro"
+  summary: "a curated collection of Crush programs (games written by different models, interpreters, an agent-written tool, a CAISON parser); games/v2 rebuilt as facet 0.3.0 CLIs with golden tests on 2026-11-15; two older PRs (#2, #5) still open"
+  stewards: ["altair"]
+  evidence: {
+    default_branch: "master"
+  }
+}
+
+milestones: [
+  {
+    id: "A1"
+    title: "the collection: model-written games, interpreters, tools"
+    status: "done" @verified { at: "2026-11-18", by: "altair" }
+    done_at: "2026-10-09"
+    done_when: [
+      { claim: "games listed in the README", check: { kind: "file", path: "README.md", contains: "## The games" } },
+      { claim: "blackjack (PR #1)", check: { kind: "merged", pr: "1" } },
+      { claim: "caison-parsor (PR #3)", check: { kind: "merged", pr: "3" } },
+      { claim: "agents/log-triage (PR #4)", check: { kind: "merged", pr: "4" } },
+    ]
+  },
+  {
+    id: "A2"
+    title: "games/v2 on facet 0.3.0 with golden-output tests"
+    status: "done" @verified { at: "2026-11-18", by: "altair" }
+    done_at: "2026-11-15"
+    done_when: [{ claim: "PR #6 merged (FACET-DOGFOOD)", check: { kind: "merged", pr: "6" } }]
+  },
+  {
+    id: "A3"
+    title: "current with the Crush 1.0 surface"
+    status: "next" @verified { at: "2026-11-18", by: "altair" }
+    depends_on: ["crush-ast:VIS"]
+    done_when: [
+      "programs carry pub where crush-ast V2 (#520) asks and run on the freeze release",
+      "open PRs #2 (rps_tournament) and #5 (verification record on crush-ast 3ae0b4a, 2026-10-16) merged or closed",
+    ]
+  },
+]
